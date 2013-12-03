@@ -13,135 +13,10 @@
  *   http://www.gnu.org/licenses/gpl.html
  *
 */
-
-(function($, win){
+(function(global, win) {
+	'use strict';
 	
-	var idleTimeout = {
-		init: function( element, resume, options ){
-			var self = this, elem;
-
-			this.warning = elem = $(element);
-			this.resume = $(resume);
-			this.options = options;
-			this.countdownOpen = false;
-			this.failedRequests = options.failedRequests;
-			this._startTimer();
-      		this.title = document.title;
-			
-			// expose obj to data cache so peeps can call internal methods
-			$.data( elem[0], 'idletimeout', this );
-			
-			// start the idle timer
-			$.idleTimer(options.idleAfter * 1000);
-			
-			// once the user becomes idle
-			$(document).bind("idle.idleTimer", function(){
-				
-				// if the user is idle and a countdown isn't already running
-				if( $.data(document, 'idleTimer') === 'idle' && !self.countdownOpen ){
-					self._stopTimer();
-					self.countdownOpen = true;
-					self._idle();
-				}
-			});
-			
-			// bind continue link
-			this.resume.bind("click", function(e){
-				e.preventDefault();
-				
-				win.clearInterval(self.countdown); // stop the countdown
-				self.countdownOpen = false; // stop countdown
-				self._startTimer(); // start up the timer again
-				self._keepAlive( false ); // ping server
-				options.onResume.call( self.warning ); // call the resume callback
-			});
-		},
-		
-		_idle: function(){
-			var self = this,
-				options = this.options,
-				warning = this.warning[0],
-				counter = options.warningLength;
-				
-			// fire the onIdle function
-			options.onIdle.call(warning);
-			
-			// set inital value in the countdown placeholder
-			options.onCountdown.call(warning, counter);
-			
-			// create a timer that runs every second
-			this.countdown = win.setInterval(function(){
-				if(--counter === 0){
-					window.clearInterval(self.countdown);
-					options.onTimeout.call(warning);
-				} else {
-					options.onCountdown.call(warning, counter);
-          document.title = options.titleMessage.replace('%s', counter) + self.title;
-				}
-			}, 1000);
-		},
-		
-		_startTimer: function(){
-			var self = this;
-
-			this.timer = win.setTimeout(function(){
-				self._keepAlive();
-			}, this.options.pollingInterval * 1000);
-		},
-		
-		_stopTimer: function(){
-			// reset the failed requests counter
-			this.failedRequests = this.options.failedRequests;
-			win.clearTimeout(this.timer);
-		},
-		
-		_keepAlive: function( recurse ){
-			var self = this,
-				options = this.options;
-				
-			//Reset the title to what it was.
-			document.title = self.title;
-			
-			// assume a startTimer/keepAlive loop unless told otherwise
-			if( typeof recurse === "undefined" ){
-				recurse = true;
-			}
-			
-			// if too many requests failed, abort
-			if( !this.failedRequests ){
-				this._stopTimer();
-				options.onAbort.call( this.warning[0] );
-				return;
-			}
-			
-			$.ajax({
-				timeout: options.AJAXTimeout,
-				url: options.keepAliveURL,
-				error: function(){
-					self.failedRequests--;
-				},
-				success: function(response){
-					if($.trim(response) !== options.serverResponseEquals){
-						self.failedRequests--;
-					}
-				},
-				complete: function(){
-					if( recurse ){
-						self._startTimer();
-					}
-				}
-			});
-		}
-	};
-	
-	// expose
-	$.idleTimeout = function(element, resume, options){
-		idleTimeout.init( element, resume, $.extend($.idleTimeout.options, options) );
-		return this;
-	};
-	
-	// options
-	$.idleTimeout.options = {
+	var defaults = {
 		// number of seconds after user is idle to show the warning
 		warningLength: 30,
 		
@@ -165,6 +40,9 @@
 		
 		// %s will be replaced by the counter value
     	titleMessage: 'Warning: %s seconds until log out | ',
+    	
+    	//boolean whether to change title or not
+    	changeTitle: true,
 		
 		/*
 			Callbacks
@@ -186,4 +64,153 @@
 		onAbort: $.noop
 	};
 	
-})(jQuery, window);
+	// Wrapper function that allows us to pass it to define later
+    var wrap = function($) {
+		var idleTimeout = {
+			init: function( element, resume, logoff, options ){
+				var self = this, elem;
+		
+				this.warning = elem = $(element);
+				this.resume = $(resume);
+				this.logoff = $(logoff);
+				this.options = options;
+				this.countdownOpen = false;
+				this.failedRequests = options.failedRequests;
+				this._startTimer();
+		  		this.title = document.title;
+				
+				// expose obj to data cache so peeps can call internal methods
+				$.data( elem[0], 'idletimeout', this );
+				
+				// start the idle timer
+				$.idleTimer(options.idleAfter * 1000);
+				
+				// once the user becomes idle
+				$(document).bind("idle.idleTimer", function(){
+					
+					// if the user is idle and a countdown isn't already running
+					if( $.data(document, 'idleTimer') === 'idle' && !self.countdownOpen ){
+						self._stopTimer();
+						self.countdownOpen = true;
+						self._idle();
+					}
+				});
+				
+				// bind continue link
+				this.resume.bind("click", function(e){
+					e.preventDefault();
+					
+					window.clearInterval(self.countdown); // stop the countdown
+					self.countdownOpen = false; // stop countdown
+					self._startTimer(); // start up the timer again
+					self._keepAlive( false ); // ping server
+					options.onResume.call( self.warning ); // call the resume callback
+				});
+				
+				// bind logoff link
+				this.logoff.bind("click", function(e){
+					e.preventDefault();
+					
+					options.onTimeout.call();
+				});
+				
+			},
+			
+			_idle: function(){
+				var self = this,
+					options = this.options,
+					warning = this.warning[0],
+					counter = options.warningLength;
+					
+				// fire the onIdle function
+				options.onIdle.call(warning);
+				
+				// set inital value in the countdown placeholder
+				options.onCountdown.call(warning, counter);
+				
+				// create a timer that runs every second
+				this.countdown = window.setInterval(function(){
+					if(--counter === 0){
+						window.clearInterval(self.countdown);
+						options.onTimeout.call(warning);
+					} else {
+						options.onCountdown.call(warning, counter);
+						if(options.changeTitle){
+							document.title = options.titleMessage.replace('%s', counter) + self.title;
+						}
+					}
+				}, 1000);
+			},
+			
+			_startTimer: function(){
+				var self = this;
+		
+				this.timer = window.setTimeout(function(){
+					self._keepAlive();
+				}, this.options.pollingInterval * 1000);
+			},
+			
+			_stopTimer: function(){
+				// reset the failed requests counter
+				this.failedRequests = this.options.failedRequests;
+				window.clearTimeout(this.timer);
+			},
+			
+			_keepAlive: function( recurse ){
+				var self = this,
+					options = this.options;
+					
+				//Reset the title to what it was.
+				document.title = self.title;
+				
+				// assume a startTimer/keepAlive loop unless told otherwise
+				if( typeof recurse === "undefined" ){
+					recurse = true;
+				}
+				
+				// if too many requests failed, abort
+				if( !this.failedRequests ){
+					this._stopTimer();
+					options.onAbort.call( this.warning[0] );
+					return;
+				}
+				
+				$.ajax({
+					timeout: options.AJAXTimeout,
+					url: options.keepAliveURL,
+					error: function(){
+						self.failedRequests--;
+					},
+					success: function(response){
+						if($.trim(response) !== options.serverResponseEquals){
+							self.failedRequests--;
+						}
+					},
+					complete: function(){
+						if( recurse ){
+							self._startTimer();
+						}
+					}
+				});
+			}
+		};		
+		
+		// expose
+		$.idleTimeout = function(element, resume, logoff, options){
+			options = $.extend(true, {}, defaults, options);
+
+			idleTimeout.init(element, resume, logoff, options);
+			this.fn.data('idleTimeout',  idleTimeout);
+		};
+    };
+	
+	// Check for the presence of an AMD loader and if so pass the wrap function to define
+    // We can safely assume 'jquery' is the module name as it is a named module already - http://goo.gl/PWyOV
+    if (typeof define === 'function' && define.amd) {
+        define(['jquery', 'idletimer'], wrap);
+    } else {
+        // Otherwise we assume jQuery was loaded the old fashioned way and just pass the jQuery object to wrap
+        wrap(global.jQuery);
+    }
+    
+})(this);
